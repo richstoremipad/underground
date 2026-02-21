@@ -9,6 +9,32 @@ const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPa
 
 
 // [INSERT SETELAH REQUIRE]
+
+// [LOGIKA SAKTI: HANYA MATIKAN SANDBOX JIKA PERLU]
+// Cek apakah OS-nya Linux?
+if (process.platform === 'linux') {
+    // Cek 1: Apakah berjalan di Termux? (Termux punya env var khusus)
+    const isTermux = process.env.TERMUX_VERSION;
+    
+    // Cek 2: Apakah user adalah ROOT? (VPS biasanya root, uid 0)
+    // process.getuid hanya ada di POSIX (Linux/Mac), jadi kita cek keberadaannya dulu
+    const isRoot = process.getuid && process.getuid() === 0;
+
+    // KEPUTUSAN HAKIM:
+    // Jika Termux ATAU Root -> Matikan Sandbox & GPU (Biar tidak blank/crash)
+    // Jika Fedora/Ubuntu Desktop (User Biasa) -> Biarkan Sandbox Nyala (Aman)
+    if (isTermux || isRoot) {
+        console.log('[SYSTEM] Terdeteksi Termux/Root. Mengaktifkan mode --no-sandbox.');
+        app.commandLine.appendSwitch('no-sandbox');
+        app.commandLine.appendSwitch('disable-gpu');
+        app.commandLine.appendSwitch('disable-software-rasterizer');
+    } else {
+        console.log('[SYSTEM] Terdeteksi Linux Desktop (Fedora/Ubuntu). Sandbox AKTIF.');
+    }
+}
+// Windows & Mac otomatis aman (Sandbox tetap nyala default)
+
+
 // ==========================================
 // SMART BROWSER DETECTION LOGIC
 // ==========================================
