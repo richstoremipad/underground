@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder -c.publish=never",
+    "dist": "electron-builder -p never",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
