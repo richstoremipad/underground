@@ -30,7 +30,7 @@
     "appId": "com.robotfb.reborn",
     "productName": "RobotFB Reborn",
     "directories": { "output": "release" },
-    "win": { "target": "nsis", "icon": "dist/logo.ico" },
+    "win": { "target": "nsis" },
     "linux": { "target": ["AppImage", "deb"], "icon": "dist/logo.png", "category": "Utility" },
     "files": ["dist/**/*", "electron/**/*", "package.json"]
   }
