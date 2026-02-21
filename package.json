@@ -2,11 +2,15 @@
   "name": "robotfb-underground-reborn",
   "private": true,
   "version": "1.1.0",
-  "description": "ROBOTFB Reborn",
+  "description": "ROBOTFB Underground Reborn - Facebook Automation Tool",
   "main": "electron/main.cjs",
+  "author": {
+    "name": "Rich Dev",
+    "email": "richdev@example.com"
+  },
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder",
+    "dist": "electron-builder -c.publish=never",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
@@ -29,9 +33,33 @@
   "build": {
     "appId": "com.robotfb.reborn",
     "productName": "RobotFB Reborn",
-    "directories": { "output": "release" },
-    "win": { "target": "nsis" },
-    "linux": { "target": ["AppImage", "deb"], "icon": "dist/logo.png", "category": "Utility" },
-    "files": ["dist/**/*", "electron/**/*", "package.json"]
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "dist/logo.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "dist/logo.png",
+      "category": "Utility",
+      "maintainer": "richdev@example.com"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "RobotFB Reborn"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ]
   }
 }
