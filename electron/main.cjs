@@ -12,7 +12,7 @@ const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPa
 // ==========================================
 // SMART BROWSER DETECTION LOGIC
 // ==========================================
-const fs = require('fs'); // Pastikan fs sudah di-require di atas
+
 let SMART_BROWSER_CONFIG = {};
 
 if (process.platform === 'linux') {
