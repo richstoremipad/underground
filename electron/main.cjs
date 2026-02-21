@@ -7,6 +7,53 @@ const Store = require('electron-store');
 const { uploadPhotoToFB, uploadMultiplePhotos, extractFbDtsg, extractUid } = require('./uploadHelper.cjs');
 const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPaths, mapCondition, mapCategory } = require('./publishHelper.cjs');
 
+const { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } = require('electron');
+const path = require('path');
+// ... require lainnya ...
+
+// --- [SISIPKAN INI AGAR JALAN MULUS DI TERMUX] ---
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+// -------------------------------------------------
+
+// ==========================================
+// SMART BROWSER DETECTION LOGIC
+// ...
+
+// [INSERT SETELAH REQUIRE]
+// ==========================================
+// SMART BROWSER DETECTION LOGIC
+// ==========================================
+const fs = require('fs'); // Pastikan fs sudah di-require di atas
+let SMART_BROWSER_CONFIG = {};
+
+if (process.platform === 'linux') {
+    // Prioritas 1: Cek Chromium (Standar Termux/Debian)
+    if (fs.existsSync('/usr/bin/chromium')) {
+        console.log('[SYSTEM] Menggunakan Chromium System (/usr/bin/chromium)');
+        SMART_BROWSER_CONFIG = { executablePath: '/usr/bin/chromium' };
+    } 
+    // Prioritas 2: Cek Chromium Browser (Ubuntu/Raspbian)
+    else if (fs.existsSync('/usr/bin/chromium-browser')) {
+        console.log('[SYSTEM] Menggunakan Chromium Browser (/usr/bin/chromium-browser)');
+        SMART_BROWSER_CONFIG = { executablePath: '/usr/bin/chromium-browser' };
+    }
+    // Prioritas 3: Cek Google Chrome Linux
+    else if (fs.existsSync('/usr/bin/google-chrome')) {
+        console.log('[SYSTEM] Menggunakan Google Chrome Linux');
+        SMART_BROWSER_CONFIG = { channel: 'chrome' };
+    }
+    else {
+        console.log('[SYSTEM] Browser sistem tidak ditemukan, mencoba bundled...');
+        SMART_BROWSER_CONFIG = {}; // Biarkan Playwright mencari sendiri
+    }
+} else {
+    // Windows / Mac: Default pakai Chrome
+    console.log('[SYSTEM] Mendeteksi Windows/Mac, menggunakan channel Chrome');
+    SMART_BROWSER_CONFIG = { channel: 'chrome' };
+}
+
 // ============================================
 // Configuration
 // ============================================
@@ -323,7 +370,7 @@ ipcMain.handle('account:verify-selected', async (_event, ids) => {
             try {
                 browser = await chromium.launch({
                     headless: false,
-                    channel: 'chrome',
+                    ...SMART_BROWSER_CONFIG,
                     ignoreDefaultArgs: ['--enable-automation'],
                     args: [
                         '--disable-blink-features=AutomationControlled',
@@ -489,7 +536,7 @@ ipcMain.handle('account:open-browser', async (_event, accountId) => {
         // STEALTH: Launch real Chrome, remove automation indicators
         const browser = await chromium.launch({
             headless: false,
-            channel: 'chrome',
+            ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-infobars',
@@ -580,7 +627,7 @@ ipcMain.handle('account:manual-login', async (_event, accountId) => {
         // Use chromium.launch() + newContext() — same approach as working auto-login
         const browser = await chromium.launch({
             headless: false,
-            channel: 'chrome',
+            ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-infobars',
@@ -800,7 +847,7 @@ ipcMain.handle('account:import-cookies', async (_event, accountId, cookieText) =
         try {
             const browser = await chromium.launch({
                 headless: false,
-                channel: 'chrome',
+                ...SMART_BROWSER_CONFIG,
                 ignoreDefaultArgs: ['--enable-automation'],
                 args: [
                     '--disable-infobars',
@@ -913,7 +960,7 @@ ipcMain.handle('account:validate-selected', async (_event, ids) => {
             try {
                 browser = await chromium.launch({
                     headless: true,
-                    channel: 'chrome',
+                    ...SMART_BROWSER_CONFIG,
                     ignoreDefaultArgs: ['--enable-automation'],
                     args: [
                         '--disable-blink-features=AutomationControlled',
@@ -981,7 +1028,7 @@ ipcMain.handle('account:fetch-profile', async (_event, accountId) => {
 
         browser = await chromium.launch({
             headless: true,
-            channel: 'chrome',
+            ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-blink-features=AutomationControlled',
@@ -1183,7 +1230,7 @@ ipcMain.handle.__fetchProfileInternal = async (accountId) => {
         }
 
         browser = await chromium.launch({
-            headless: true, channel: 'chrome',
+            headless: true, ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-infobars'],
         });
@@ -1359,7 +1406,7 @@ ipcMain.handle('marketplace:scrape-keywords', async (event, { keywords: rawInput
         console.log(`[KEYWORDS] Phase 1: Token grab for ${activeAccount.uid}...`);
         tokenBrowser = await chromium.launch({
             headless: true,
-            channel: 'chrome',
+            ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-blink-features=AutomationControlled',
@@ -1734,7 +1781,7 @@ ipcMain.handle('marketplace:scrape-locations', async (event, { cities, province 
         console.log(`[LOCATIONS] Phase 1: Token grab for ${activeAccount.uid}...`);
         tokenBrowser = await chromium.launch({
             headless: true,
-            channel: 'chrome',
+            ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-blink-features=AutomationControlled',
@@ -1994,7 +2041,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
             // Launch headless browser with stored cookies
             browser = await chromium.launch({
                 headless: true,
-                channel: 'chrome',
+                ...SMART_BROWSER_CONFIG,
                 ignoreDefaultArgs: ['--enable-automation'],
                 args: [
                     '--disable-blink-features=AutomationControlled',
@@ -2470,7 +2517,7 @@ ipcMain.handle('open-url-with-session', async (_event, { url, accountId }) => {
         const { chromium } = require('playwright');
         const browser = await chromium.launch({
             headless: false,
-            channel: 'chrome',
+            ...SMART_BROWSER_CONFIG,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-blink-features=AutomationControlled',
