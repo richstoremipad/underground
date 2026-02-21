@@ -38,8 +38,7 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis",
-      "icon": "dist/logo.ico"
+      "target": "nsis"
     },
     "linux": {
       "target": [
