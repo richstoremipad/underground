@@ -1,4 +1,4 @@
-name: Build Installer
+name: Build All Installers
 
 on:
   push:
@@ -6,34 +6,52 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  # JOB 1: TUGAS BIKIN EXE (Pakai Komputer Windows)
+  build-win:
     runs-on: windows-latest
-
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          
+      - name: Install Dependencies
+        run: npm install
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Build Windows
+        # Perintah khusus hanya build win
+        run: npm run dist -- --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows Artifact
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release/*.exe
+
+  # JOB 2: TUGAS BIKIN DEB & APPIMAGE (Pakai Komputer Linux)
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 18
 
       - name: Install Dependencies
         run: npm install
 
-      - name: Build EXE & Linux
-        run: npm run dist
+      - name: Build Linux
+        # Perintah khusus hanya build linux
+        run: npm run dist -- --linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Artifacts
+      - name: Upload Linux Artifacts
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            release/*.exe
-            release/*.AppImage
             release/*.deb
+            release/*.AppImage
