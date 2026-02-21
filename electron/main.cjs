@@ -9,17 +9,6 @@ const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPa
 
 const { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } = require('electron');
 const path = require('path');
-// ... require lainnya ...
-
-// --- [SISIPKAN INI AGAR JALAN MULUS DI TERMUX] ---
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-software-rasterizer');
-// -------------------------------------------------
-
-// ==========================================
-// SMART BROWSER DETECTION LOGIC
-// ...
 
 // [INSERT SETELAH REQUIRE]
 // ==========================================
