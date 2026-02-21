@@ -7,8 +7,6 @@ const Store = require('electron-store');
 const { uploadPhotoToFB, uploadMultiplePhotos, extractFbDtsg, extractUid } = require('./uploadHelper.cjs');
 const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPaths, mapCondition, mapCategory } = require('./publishHelper.cjs');
 
-const { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } = require('electron');
-const path = require('path');
 
 // [INSERT SETELAH REQUIRE]
 // ==========================================
