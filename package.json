@@ -52,7 +52,7 @@
           "arch": ["x64", "arm64"]
         }
       ],
-      "icon": "dist/logo.png",
+      "icon": "icon.png",
       "category": "Utility",
       "maintainer": "richdev@example.com"
     },
