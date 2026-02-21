@@ -2507,7 +2507,7 @@ ipcMain.handle('posting:delete-selected', async (_event, ids) => {
 // ============================================
 // License System
 // ============================================
-const LICENSE_API = 'https://akses.markasbot.id/api';
+const LICENSE_API = 'https://script.google.com/macros/s/AKfycbzQckTt7YWeDTn-P8sE9Q4viQ7IjGfgqoIh5h3GYrkYOtpagc3O0WE48b_nDF0o8T7p/exec';
 
 function getHWID() {
     const cpu = os.cpus()[0]?.model || 'unknown-cpu';
@@ -2552,39 +2552,33 @@ async function queryTrialUsage() {
     } catch { return null; }
 }
 
-async function licenseApiCall(endpoint, body) {
-    const https = require('https');
-    const url = `${LICENSE_API}/${endpoint}`;
-    const postData = JSON.stringify(body);
+// --- FUNGSI BARU MENGGUNAKAN AXIOS (Support Google Redirect) ---
+const axios = require('axios'); // Pastikan ini ada
 
-    return new Promise((resolve, reject) => {
-        const urlObj = new URL(url);
-        const options = {
-            hostname: urlObj.hostname,
-            path: urlObj.pathname,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(postData),
-            },
-        };
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch {
-                    reject(new Error('Invalid JSON response from server'));
-                }
-            });
+async function licenseApiCall(endpoint, body) {
+    // Di Google Script, 'endpoint' (login.php dll) kita abaikan 
+    // karena semua request masuk ke URL yang sama.
+    // Kita kirim endpoint sebagai 'action' di dalam body jika belum ada.
+    
+    // Mapping endpoint PHP ke action sederhana
+    if (endpoint.includes('login')) body.action = 'login';
+    else if (endpoint.includes('check')) body.action = 'check';
+    else if (endpoint.includes('trial')) body.action = 'trial';
+    else if (endpoint.includes('reset')) body.action = 'reset';
+    
+    try {
+        const response = await axios.post(LICENSE_API, body, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000,
+            maxRedirects: 5 // Google Script suka redirect
         });
-        req.on('error', (err) => reject(err));
-        req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timeout')); });
-        req.write(postData);
-        req.end();
-    });
+        return response.data;
+    } catch (error) {
+        console.error("License Error:", error.message);
+        throw new Error('Gagal koneksi ke server database: ' + error.message);
+    }
 }
+
 
 // --- License: Activate (login + activate) ---
 ipcMain.handle('license:activate', async (_event, email, password) => {
