@@ -2009,29 +2009,13 @@ ipcMain.handle('marketplace:stop-posting', async (_event, campaignId) => {
     return { success: true };
 });
 
-// Letakkan di luar ipcMain.handle, misalnya di bawah variable postingAbortMap
-function updateCampaignStatus(campaignId, status) {
-    if (!campaignId) return;
-    try {
-        const campaigns = campaignStore.get('campaigns', []);
-        const idx = campaigns.findIndex(c => c.id === campaignId);
-        if (idx !== -1) {
-            campaigns[idx].status = status; // 'RUNNING', 'PAUSED', 'COMPLETED'
-            campaigns[idx].lastUpdated = new Date().toISOString();
-            campaignStore.set('campaigns', campaigns);
-        }
-    } catch (e) { console.error("Gagal update status campaign:", e); }
-}
-
-
 ipcMain.handle('marketplace:start-posting', async (event, payload) => {
     const { accountIds, materialIds, delayMin = 30, delayMax = 60, concurrency = 1, modePosting = 'STANDAR', hideFromFriends = false, campaignId = null } = payload;
 
-   // 1. UPDATE STATUS KE 'RUNNING' SAAT DIMULAI
-    // Ini agar jika mati lampu, status terakhir tercatat
+    // Per-campaign abort flag
     const cid = campaignId || `legacy_${Date.now()}`;
     postingAbortMap.set(cid, false);
-    updateCampaignStatus(cid, 'RUNNING'); // <--- UPDATE STATUS
+    const isAborted = () => postingAbortMap.get(cid) === true;
 
     // ── Trial Enforcement: Post Limit ──
     const totalPosts = accountIds.length * materialIds.length;
@@ -2056,9 +2040,6 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
         postingAbortMap.delete(cid);
         return { success: false, error: 'Tidak ada bahan posting yang dipilih.' };
     }
-    
-    // Ambil history untuk pengecekan "Smart Skip"
-    const existingHistory = store.get('posting_history', []);
 
     const totalTasks = selectedAccounts.length * selectedMaterials.length;
     let globalDone = 0;
@@ -2074,7 +2055,6 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
             mainWindow.webContents.send('posting:status', { campaignId: cid, ...data });
         }
     };
-    
 
     sendLog(`🚀 Misi dimulai! ${selectedAccounts.length} akun × ${selectedMaterials.length} bahan = ${totalTasks} tugas | Mode: ${modePosting}`, 'success');
 
@@ -2210,47 +2190,14 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
             sendLog(`✅ [${account.name || account.uid}] Tidak ada batas posting. Melanjutkan...`);
 
-            
-                
-// === LOOP BAHAN (MODIFIKASI UTAMA DISINI) ===
-        for (let mi = 0; mi < selectedMaterials.length; mi++) {
-            // Cek Abort
-            if (postingAbortMap.get(cid) === true) {
-                sendLog('🛑 Misi dihentikan/dipause oleh user.', 'warning');
-                updateCampaignStatus(cid, 'PAUSED'); // <--- SIMPAN STATUS PAUSED
-                break;
-            }
+            // Process each material for this account (SEQUENTIAL within account)
+            for (let mi = 0; mi < selectedMaterials.length; mi++) {
+                if (isAborted()) {
+                    sendLog('🛑 Misi dihentikan oleh user.', 'error');
+                    break;
+                }
 
-            const material = selectedMaterials[mi];
-            
-            // ============================================================
-            // LOGIKA SMART SKIP (ANTI MATI LAMPU / RESTART)
-            // ============================================================
-            // Kita cek apakah Akun ini SUDAH PERNAH sukses memposting Material ini?
-            // Kita cek berdasarkan kombinasi Account ID + Material ID + Status SUKSES
-            const alreadyDone = existingHistory.some(h => 
-                h.accountId === account.id && 
-                h.materialId === material.id && 
-                h.status === 'SUKSES'
-            );
-
-            if (alreadyDone) {
-                // Jika sudah ada di history sukses, kita SKIP!
-                sendLog(`⏭️ [SMART SKIP] ${material.judul} sudah pernah diposting akun ini. Melewati...`, 'info', { accountId: account.id });
-                
-                // Update progress bar global biar user tau ini di-skip
-                globalDone++; 
-                sendStatus({
-                    type: 'global',
-                    done: globalDone,
-                    failed: globalFailed,
-                    total: totalTasks,
-                });
-                
-                continue; // <--- LANJUT KE BAHAN BERIKUTNYA TANPA POSTING
-            }
-
-               
+                const material = selectedMaterials[mi];
                 const taskLabel = `[${account.name || account.uid}] #${mi + 1}/${selectedMaterials.length}`;
 
                 // ── NAVIGASI ULANG ke halaman Create (reset konteks setiap material) ──
@@ -2526,13 +2473,9 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
     sendLog(`🏁 Misi selesai! ${globalDone} berhasil, ${globalFailed} gagal dari ${totalTasks} tugas.`, 'complete');
     sendStatus({ type: 'global', done: globalDone, failed: globalFailed, total: totalTasks, complete: true });
 
-      // 2. UPDATE STATUS KE 'COMPLETED' JIKA SELESAI SEMUA
-    // Jika di-abort di tengah jalan, statusnya sudah di-set 'PAUSED' di dalam loop
-    if (postingAbortMap.get(cid) !== true) {
-        updateCampaignStatus(cid, 'COMPLETED');
-    }
-
+    // Cleanup abort flag
     postingAbortMap.delete(cid);
+
     return { success: true, done: globalDone, failed: globalFailed, total: totalTasks };
 });
 

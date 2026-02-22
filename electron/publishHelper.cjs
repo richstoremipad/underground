@@ -186,28 +186,46 @@ function buildCommonData(material, photoIDs, hideFromFriends = false) {
 // Exact replica of real FB Edit mutation network capture
 // SEPARATE from buildCommonData to avoid leaking Create-only fields
 // ============================================
-function buildEditCommonData(material, photoIDs, hideFromFriends = false) {
+function buildCommonData(material, photoIDs, hideFromFriends = false) {
     const { lat, lng } = extractCoordinates(material);
     const cleanPrice = String(material.harga || '0').replace(/\D/g, '');
     const cleanCategory = String(mapCategoryToFbId(material.kategori));
     const cleanCondition = mapCondition(material.kondisi);
-    const cleanTitle = String(material.judul || 'Untitled').substring(0, 100).trim();
+    
+    // Ambil judul (sudah ada di kode asli)
+    [span_1](start_span)const cleanTitle = String(material.judul || 'Untitled').substring(0, 100).trim();[span_1](end_span)
+    
     const cleanDescription = String(material.deskripsi || '');
     const tagsArray = material.tags
         ? material.tags.split(',').map((t) => t.trim().substring(0, 20)).filter(Boolean).slice(0, 20)
         : [];
 
-    // Field set & order matches real FB Edit mutation network capture EXACTLY
+    // --- LOGIKA BARU: TRIGGER DARI JUDUL (COD) ---
+    // Cek apakah judul mengandung kata "cod" (case-insensitive / tidak peduli besar kecil)
+    // Contoh yang terdeteksi: "Jam COD", "Bisa Cod", "barang cOd", "(COD)"
+    const isHomeDelivery = cleanTitle.toLowerCase().includes('cod');
+
+    // Tipe pengiriman default
+    const deliveryTypes = ['IN_PERSON', 'PUBLIC_MEETUP', 'DOOR_PICKUP', 'DOOR_DROPOFF']; [span_2](start_span)//[span_2](end_span)
+    
+    // Jika ada kata "cod" di judul, tambahkan LOCAL_DELIVERY
+    if (isHomeDelivery) {
+        deliveryTypes.push('LOCAL_DELIVERY');
+        console.log(`[PUBLISH] Fitur 'Pengantaran Sampai Rumah' AKTIF (Trigger Judul): ${cleanTitle}`);
+    }
+    // ---------------------------------------------
+
     return {
         attribute_data_json: JSON.stringify({ condition: cleanCondition }),
         category_id: cleanCategory,
-        comments_disabled: true,
         commerce_shipping_carrier: null,
         commerce_shipping_carriers: [],
         comparable_price: 'null',
-        comparable_price_type: null,
         cost_per_additional_item: null,
-        delivery_types: ['IN_PERSON'],
+        
+        // PENTING: Gunakan variabel deliveryTypes yang sudah kita modifikasi di atas
+        delivery_types: deliveryTypes, 
+        
         description: { text: cleanDescription },
         draft_type: null,
         hidden_from_friends_visibility: hideFromFriends ? 'HIDDEN_FROM_FRIENDS' : 'VISIBLE_TO_EVERYONE',
@@ -227,6 +245,7 @@ function buildEditCommonData(material, photoIDs, hideFromFriends = false) {
         shipping_cost_range_lower_cost: null,
         shipping_cost_range_upper_cost: null,
         shipping_label_price: '0',
+        shipping_label_rate_code: null,
         shipping_label_rate_type: null,
         shipping_offered: false,
         shipping_options_data: [],
@@ -234,16 +253,18 @@ function buildEditCommonData(material, photoIDs, hideFromFriends = false) {
         shipping_price: 'null',
         shipping_service_type: null,
         sku: '',
-        source_type: 'browse_tab',
+        source_type: 'composer_listing_type_selector',
         suggested_hashtag_names: [],
-        surface: 'edit_composer',
+        surface: 'composer',
         title: cleanTitle,
         variants: [],
         video_ids: [],
-        // photo_ids INTENTIONALLY OMITTED — upload IDs are converted to FB internal
-        // photo object IDs during draft creation. Re-sending upload IDs causes noncoercible_variable_value.
+        xpost_target_ids: [],
+        comments_disabled: true,
+        photo_ids: photoIDs.filter(Boolean).map(String),
     };
 }
+
 
 // ============================================
 // Publish a single listing via GraphQL mutation
