@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Material Builder
     openImageDialog: () => ipcRenderer.invoke('dialog:open-images'),
     openImages: () => ipcRenderer.invoke('dialog:open-images'),
+    openImageFolder: () => ipcRenderer.invoke('dialog:open-image-folder'),
     saveMaterials: (data) => ipcRenderer.invoke('material:save', data),
     getMaterials: () => ipcRenderer.invoke('material:get-all'),
     deleteAllMaterials: () => ipcRenderer.invoke('material:delete-all'),
@@ -62,7 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Auto Posting Engine
     startPosting: (payload) => ipcRenderer.invoke('marketplace:start-posting', payload),
-    stopPosting: () => ipcRenderer.invoke('marketplace:stop-posting'),
+    stopPosting: (campaignId) => ipcRenderer.invoke('marketplace:stop-posting', campaignId),
     getPostingHistory: () => ipcRenderer.invoke('posting:get-history'),
     clearPostingHistory: () => ipcRenderer.invoke('posting:clear-history'),
     openUrlWithSession: (params) => ipcRenderer.invoke('open-url-with-session', params),

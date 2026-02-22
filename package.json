@@ -1,7 +1,7 @@
 {
   "name": "robotfb-underground-reborn",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "ROBOTFB Underground Reborn - Facebook Automation Tool",
   "main": "electron/main.cjs",
   "author": {

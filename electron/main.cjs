@@ -7,16 +7,6 @@ const Store = require('electron-store');
 const { uploadPhotoToFB, uploadMultiplePhotos, extractFbDtsg, extractUid } = require('./uploadHelper.cjs');
 const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPaths, mapCondition, mapCategory } = require('./publishHelper.cjs');
 
-
-// [INSERT SETELAH REQUIRE]
-
-// --- [SISIPKAN INI AGAR JALAN MULUS DI TERMUX] ---
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-software-rasterizer');
-// -------------------------------------------------
-
-
 // ==========================================
 // SMART BROWSER DETECTION LOGIC
 // ==========================================
@@ -801,6 +791,26 @@ ipcMain.handle('account:import-cookies', async (_event, accountId, cookieText) =
                         sameSite: mapSameSite(c.sameSite || c.SameSite),
                     };
                 });
+        } else if (trimmed.includes('=') && trimmed.includes(';') && !trimmed.includes('\t')) {
+            // Raw header string format: name1=val1;name2=val2;...
+            console.log(`[IMPORT-COOKIES] Detected raw header string format`);
+            const pairs = trimmed.split(';').filter(p => p.trim().length > 0);
+            for (const pair of pairs) {
+                const eqIndex = pair.indexOf('=');
+                if (eqIndex < 1) continue;
+                const name = pair.substring(0, eqIndex).trim();
+                const value = pair.substring(eqIndex + 1).trim();
+                parsedCookies.push({
+                    name,
+                    value,
+                    domain: '.facebook.com',
+                    path: '/',
+                    expires: -1,
+                    httpOnly: false,
+                    secure: true,
+                    sameSite: 'None',
+                });
+            }
         } else {
             // Netscape/text format: domain \t flag \t path \t secure \t expiry \t name \t value
             const lines = trimmed.split('\n').filter(l => l.trim() && !l.startsWith('#'));
@@ -822,7 +832,7 @@ ipcMain.handle('account:import-cookies', async (_event, accountId, cookieText) =
         }
 
         if (parsedCookies.length === 0) {
-            return { success: false, error: 'Tidak ada cookies yang valid ditemukan. Pastikan format JSON dari Cookie-Editor.' };
+            return { success: false, error: 'Tidak ada cookies yang valid ditemukan. Pastikan format JSON (Cookie-Editor), Netscape, atau raw string (key=value;...).' };
         }
 
         console.log(`[IMPORT-COOKIES] Parsed ${parsedCookies.length} cookies for ${account.uid}`);
@@ -1673,6 +1683,26 @@ ipcMain.handle('dialog:open-images', async () => {
     return filePaths; // Array of absolute paths (e.g. C:\Users\...\foto.jpg)
 });
 
+ipcMain.handle('dialog:open-image-folder', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Pilih Folder Foto Produk',
+        properties: ['openDirectory'],
+    });
+    if (canceled || !filePaths || filePaths.length === 0) return [];
+    const folderPath = filePaths[0];
+    const imageExts = ['.jpg', '.jpeg', '.png', '.webp'];
+    try {
+        const files = fs.readdirSync(folderPath)
+            .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
+            .sort()
+            .map(f => path.join(folderPath, f));
+        return files;
+    } catch {
+        return [];
+    }
+});
+
 ipcMain.handle('material:save', async (event, materials) => {
     if (!Array.isArray(materials) || materials.length === 0) {
         return { success: false, error: 'Tidak ada data.' };
@@ -1963,22 +1993,35 @@ ipcMain.handle('marketplace:scrape-locations', async (event, { cities, province 
 // ============================================
 // IPC: Marketplace – Auto Posting Engine (API Based)
 // ============================================
-let postingAborted = false;
+const postingAbortMap = new Map(); // per-campaign abort flags
 
-ipcMain.handle('marketplace:stop-posting', async () => {
-    postingAborted = true;
-    console.log('[POSTING] Abort requested by user.');
+ipcMain.handle('marketplace:stop-posting', async (_event, campaignId) => {
+    if (campaignId) {
+        postingAbortMap.set(campaignId, true);
+        console.log(`[POSTING] Abort requested for campaign ${campaignId}`);
+    } else {
+        // Legacy fallback: stop all
+        for (const key of postingAbortMap.keys()) {
+            postingAbortMap.set(key, true);
+        }
+        console.log('[POSTING] Abort requested for ALL campaigns.');
+    }
     return { success: true };
 });
 
 ipcMain.handle('marketplace:start-posting', async (event, payload) => {
-    const { accountIds, materialIds, delayMin = 30, delayMax = 60, concurrency = 1, modePosting = 'STANDAR', hideFromFriends = false } = payload;
-    postingAborted = false;
+    const { accountIds, materialIds, delayMin = 30, delayMax = 60, concurrency = 1, modePosting = 'STANDAR', hideFromFriends = false, campaignId = null } = payload;
+
+    // Per-campaign abort flag
+    const cid = campaignId || `legacy_${Date.now()}`;
+    postingAbortMap.set(cid, false);
+    const isAborted = () => postingAbortMap.get(cid) === true;
 
     // ── Trial Enforcement: Post Limit ──
     const totalPosts = accountIds.length * materialIds.length;
     const trialCheck = await checkTrialLimit('posts', totalPosts);
     if (!trialCheck.allowed) {
+        postingAbortMap.delete(cid);
         return { success: false, error: trialCheck.message, trial_limit: true };
     }
 
@@ -1990,9 +2033,11 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
     const selectedMaterials = allMaterials.filter((m) => materialIds.includes(m.id));
 
     if (selectedAccounts.length === 0) {
+        postingAbortMap.delete(cid);
         return { success: false, error: 'Tidak ada akun ACTIVE yang valid (perlu cookiesPath).' };
     }
     if (selectedMaterials.length === 0) {
+        postingAbortMap.delete(cid);
         return { success: false, error: 'Tidak ada bahan posting yang dipilih.' };
     }
 
@@ -2002,12 +2047,12 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
     const sendLog = (msg, type = 'info', meta = {}) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('posting:log', { msg, type, ...meta });
+            mainWindow.webContents.send('posting:log', { msg, type, campaignId: cid, ...meta });
         }
     };
     const sendStatus = (data) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('posting:status', data);
+            mainWindow.webContents.send('posting:status', { campaignId: cid, ...data });
         }
     };
 
@@ -2017,7 +2062,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
     // ── ACCOUNT WORKER: Process all materials for ONE account ──
     const processOneAccount = async (account, ai) => {
-        if (postingAborted) return;
+        if (isAborted()) return;
 
         sendLog(`👤 [${account.name || account.uid}] Membuka sesi...`);
         sendStatus({ accountId: account.id, status: 'Membuka Facebook...', step: 0 });
@@ -2147,7 +2192,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
             // Process each material for this account (SEQUENTIAL within account)
             for (let mi = 0; mi < selectedMaterials.length; mi++) {
-                if (postingAborted) {
+                if (isAborted()) {
                     sendLog('🛑 Misi dihentikan oleh user.', 'error');
                     break;
                 }
@@ -2373,7 +2418,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
                     // Break delay into 1s chunks so abort can respond quickly
                     for (let d = 0; d < delay; d++) {
-                        if (postingAborted) break;
+                        if (isAborted()) break;
                         await new Promise((r) => setTimeout(r, 1000));
                     }
                 }
@@ -2401,7 +2446,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
         const executing = new Set();
 
         for (const account of accounts) {
-            if (postingAborted) {
+            if (isAborted()) {
                 sendLog('🛑 Misi dihentikan oleh user.', 'error');
                 break;
             }
@@ -2427,6 +2472,9 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
     // Mission complete
     sendLog(`🏁 Misi selesai! ${globalDone} berhasil, ${globalFailed} gagal dari ${totalTasks} tugas.`, 'complete');
     sendStatus({ type: 'global', done: globalDone, failed: globalFailed, total: totalTasks, complete: true });
+
+    // Cleanup abort flag
+    postingAbortMap.delete(cid);
 
     return { success: true, done: globalDone, failed: globalFailed, total: totalTasks };
 });
@@ -2620,7 +2668,6 @@ async function licenseApiCall(endpoint, body) {
         throw new Error('Gagal koneksi ke server database: ' + error.message);
     }
 }
-
 
 // --- License: Activate (login + activate) ---
 ipcMain.handle('license:activate', async (_event, email, password) => {
