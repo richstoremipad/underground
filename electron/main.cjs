@@ -2255,7 +2255,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
                 continue; // <--- LANJUT KE BAHAN BERIKUTNYA TANPA POSTING
             }
 
-                const material = selectedMaterials[mi];
+               
                 const taskLabel = `[${account.name || account.uid}] #${mi + 1}/${selectedMaterials.length}`;
 
                 // ── NAVIGASI ULANG ke halaman Create (reset konteks setiap material) ──
