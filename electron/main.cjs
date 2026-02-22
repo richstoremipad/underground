@@ -2210,12 +2210,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
             sendLog(`✅ [${account.name || account.uid}] Tidak ada batas posting. Melanjutkan...`);
 
-            // Process each material for this account (SEQUENTIAL within account)
-            for (let mi = 0; mi < selectedMaterials.length; mi++) {
-                if (isAborted()) {
-                    sendLog('🛑 Misi dihentikan oleh user.', 'error');
-                    break;
-                }
+            
                 
 // === LOOP BAHAN (MODIFIKASI UTAMA DISINI) ===
         for (let mi = 0; mi < selectedMaterials.length; mi++) {
