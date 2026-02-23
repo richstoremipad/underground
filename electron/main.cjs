@@ -2009,7 +2009,7 @@ ipcMain.handle('marketplace:stop-posting', async (_event, campaignId) => {
     return { success: true };
 });
 
-ipcMain.handle('marketplace:start-posting', async (event, payload, campaignId) => {
+ipcMain.handle('marketplace:start-posting', async (event, payload) => {
     const { accountIds, materialIds, delayMin = 30, delayMax = 60, concurrency = 1, modePosting = 'STANDAR', hideFromFriends = false, campaignId = null } = payload;
     
     // 1. AMBIL DATA LISENSI & ATURAN DARI STORE
