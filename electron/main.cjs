@@ -2638,7 +2638,7 @@ ipcMain.handle('posting:delete-selected', async (_event, ids) => {
 // License System (DUAL SERVER SETUP)
 // ============================================
 // 1. Server Asli (Prioritas Utama)
-const SERVER_ORI = 'https://url-server-asli-disini.com/api/v1/'; 
+const SERVER_ORI = 'https://akses.markasbot.id/api'; 
 
 // 2. Server Saya (Google Sheet - Cadangan)
 const SERVER_SAYA = 'https://script.google.com/macros/s/AKfycbyk4HUvcXZuaPJ1Pls1Uil9W5dpgpA4bykKdvQI1BxuvnwBLA-uiV2AG6IF94_O2o5I/exec';
