@@ -2696,46 +2696,50 @@ async function licenseApiCall(targetUrl, endpoint, body) {
     }
 }
 
-// --- License: Activate (Logika Dual Server) ---
+// --- License: Activate (Logika Dual Server + SPY POPUP) ---
 ipcMain.handle('license:activate', async (_event, email, password) => {
     try {
         const hwid = getHWID();
         let result = { success: false, error: 'Unknown' };
         let activeServer = 'NONE';
 
-        // --- TAHAP 1: COBA SERVER ASLI ---
-        console.log('[LOGIN] Mencoba Server Asli...');
-        // Perhatikan: endpoint server asli biasanya 'login.php' atau 'login'
+        // TAHAP 1: COBA SERVER ASLI
+        // console.log('[LOGIN] Mencoba Server Asli...'); // Gak perlu log terminal
         const resultOri = await licenseApiCall(SERVER_ORI, 'login.php', { email, password, hwid });
         
         if (resultOri && resultOri.success) {
-            console.log('[LOGIN] Ditemukan di Server Asli!');
+            // === 🕵️ FITUR SPY MODE: TAMPILKAN POPUP ===
+            // Kita ubah data JSON jadi teks biar bisa dibaca
+            const dataRahasia = JSON.stringify(resultOri, null, 2);
+            
+            // Tampilkan Popup di layar
+            await dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: '🕵️ SPY MODE: Data Server Asli',
+                message: 'BERHASIL MENGINTIP DATA! Silakan foto/catat bagian "product_slug" dan "type".',
+                detail: dataRahasia, // Data lengkap akan muncul di sini
+                buttons: ['OK, Lanjut Masuk']
+            });
+            // ==========================================
+
             result = resultOri;
             activeServer = 'ORI';
-        } 
-        else {
-            // --- TAHAP 2: JIKA GAGAL, COBA SERVER SAYA ---
-            console.log('[LOGIN] Tidak ada di Server Asli. Mencoba Server Saya (Google Sheet)...');
-            // Google Sheet endpointnya tetap kita tulis 'login.php' agar masuk ke logika if di atas
+        } else {
+            // TAHAP 2: COBA SERVER SAYA
             const resultSaya = await licenseApiCall(SERVER_SAYA, 'login.php', { email, password, hwid });
-            
             if (resultSaya && resultSaya.success) {
-                console.log('[LOGIN] Ditemukan di Server Saya!');
                 result = resultSaya;
                 activeServer = 'SAYA';
             } else {
-                // Jika dua-duanya gagal, ambil pesan error dari Server Saya (atau Asli)
                 result = resultSaya || { success: false, error: 'Koneksi ke kedua server gagal.' };
             }
         }
 
-        // --- PENERJEMAH PESAN ERROR ---
         if (!result.success) {
             if (result.message && !result.error) result.error = result.message;
             if (!result.error) result.error = "Login Gagal. Cek Email/Password.";
         }
 
-        // --- JIKA SUKSES ---
         if (result.success) {
             store.set('license', {
                 source: activeServer,
@@ -2745,20 +2749,23 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
                 license_key: result.license.key,
                 license_type: result.license.type || 'paid',
                 product: result.license.product,
-                expired_at: result.license.expired_at,
+                
+                // Ambil slug dari server (atau default kalau server saya belum update)
+                product_slug: result.license.product_slug, 
+                
+                expired_at: result.license.expired_at, 
                 days_left: result.license.days_left,
                 hwid: result.license.hwid,
-                trial_limits: result.license.trial_limits || null, // Penting untuk limit
+                trial_limits: result.license.trial_limits || null,
                 last_check: Date.now(),
             });
         }
-        
         return result;
-
     } catch (err) {
         return { success: false, error: 'System Error: ' + err.message };
     }
 });
+
 
 // --- License: Heartbeat check (Versi Aman: Auto-Kill Session) ---
 ipcMain.handle('license:check', async () => {
