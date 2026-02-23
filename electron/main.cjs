@@ -2635,10 +2635,10 @@ ipcMain.handle('posting:delete-selected', async (_event, ids) => {
 // ============================================
 
 // ============================================
-// License System (DUAL SERVER SETUP)
+// License System (DUAL SERVER SETUP - AXIOS VERSION)
 // ============================================
 // 1. Server Asli (Prioritas Utama)
-const SERVER_ORI = 'https://akses.markasbot.id/api'; 
+const SERVER_ORI = 'https://akses.markasbot.id/api';
 
 // 2. Server Saya (Google Sheet - Cadangan)
 const SERVER_SAYA = 'https://script.google.com/macros/s/AKfycbyk4HUvcXZuaPJ1Pls1Uil9W5dpgpA4bykKdvQI1BxuvnwBLA-uiV2AG6IF94_O2o5I/exec';
@@ -2653,67 +2653,50 @@ function getHWID() {
     return crypto.createHash('sha256').update(raw).digest('hex').substring(0, 32);
 }
 
-// ── Trial Enforcement Helper ──
-async function checkTrialLimit(type, count = 1) {
-    const cached = store.get('license');
-    if (!cached || cached.license_type !== 'trial') return { allowed: true };
-    try {
-        const result = await licenseApiCall('trial_usage.php', {
-            action: 'increment',
-            license_key: cached.license_key,
-            hwid: getHWID(),
-            type,
-            count,
-        });
-        if (!result.success && result.error === 'LIMIT_REACHED') {
-            return { allowed: false, message: result.message || `Batas trial ${type} tercapai. Upgrade ke premium.` };
-        }
-        return { allowed: result.success };
-    } catch {
-        return { allowed: true }; // Allow on network error (offline tolerance)
-    }
-}
-
-async function queryTrialUsage() {
-    const cached = store.get('license');
-    if (!cached || cached.license_type !== 'trial') return null;
-    try {
-        return await licenseApiCall('trial_usage.php', {
-            action: 'query',
-            license_key: cached.license_key,
-            hwid: getHWID(),
-        });
-    } catch { return null; }
-}
-
-// --- FUNGSI BARU MENGGUNAKAN AXIOS (Support Google Redirect) ---
-const axios = require('axios'); // Pastikan ini ada
+// --- FUNGSI BARU MENGGUNAKAN AXIOS (Wajib Install axios dulu: npm install axios) ---
+const axios = require('axios'); 
 
 // Update Helper: Tambahkan parameter 'targetUrl' di depan
 async function licenseApiCall(targetUrl, endpoint, body) {
-    // Mapping endpoint untuk Google Script (Server Saya)
+    // A. Logika untuk Server Saya (Google Sheet)
     if (targetUrl === SERVER_SAYA) {
+        // Google Sheet butuh 'action' di dalam body, bukan di URL endpoint
         if (endpoint.includes('login')) body.action = 'login';
         else if (endpoint.includes('check')) body.action = 'check';
         else if (endpoint.includes('reset')) body.action = 'reset';
-    }
-
-    try {
-        const response = await axios.post(targetUrl, body, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 30000,
-            maxRedirects: 5
-        });
-        return response.data;
-    } catch (error) {
-        console.error(`License Error (${targetUrl}):`, error.message);
-        // Jangan throw error, return success: false agar logic bisa lanjut ke server kedua
-        return { success: false, error: 'Koneksi gagal: ' + error.message };
+        
+        // Google Sheet endpointnya cuma satu URL utama
+        try {
+            const response = await axios.post(targetUrl, body, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 30000,
+                maxRedirects: 5 // Penting: Izinkan redirect!
+            });
+            return response.data;
+        } catch (error) {
+            console.error(`License Error (Google Sheet):`, error.message);
+            return { success: false, error: 'Koneksi gagal: ' + error.message };
+        }
+    } 
+    
+    // B. Logika untuk Server Asli (PHP/Laravel)
+    else {
+        const fullUrl = `${targetUrl}/${endpoint}`; // Gabung URL + Endpoint (misal: /login.php)
+        try {
+            const response = await axios.post(fullUrl, body, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 30000,
+                maxRedirects: 5 // Penting: Izinkan redirect!
+            });
+            return response.data;
+        } catch (error) {
+            console.error(`License Error (Server Asli):`, error.message);
+            return { success: false, error: 'Koneksi gagal: ' + error.message };
+        }
     }
 }
 
-
-// --- License: Activate (login + activate) ---
+// --- License: Activate (Logika Dual Server) ---
 ipcMain.handle('license:activate', async (_event, email, password) => {
     try {
         const hwid = getHWID();
@@ -2722,6 +2705,7 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
 
         // --- TAHAP 1: COBA SERVER ASLI ---
         console.log('[LOGIN] Mencoba Server Asli...');
+        // Perhatikan: endpoint server asli biasanya 'login.php' atau 'login'
         const resultOri = await licenseApiCall(SERVER_ORI, 'login.php', { email, password, hwid });
         
         if (resultOri && resultOri.success) {
@@ -2732,6 +2716,7 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
         else {
             // --- TAHAP 2: JIKA GAGAL, COBA SERVER SAYA ---
             console.log('[LOGIN] Tidak ada di Server Asli. Mencoba Server Saya (Google Sheet)...');
+            // Google Sheet endpointnya tetap kita tulis 'login.php' agar masuk ke logika if di atas
             const resultSaya = await licenseApiCall(SERVER_SAYA, 'login.php', { email, password, hwid });
             
             if (resultSaya && resultSaya.success) {
@@ -2739,34 +2724,30 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
                 result = resultSaya;
                 activeServer = 'SAYA';
             } else {
-                // Jika dua-duanya gagal, ambil pesan error dari Server Saya
-                result = resultSaya;
+                // Jika dua-duanya gagal, ambil pesan error dari Server Saya (atau Asli)
+                result = resultSaya || { success: false, error: 'Koneksi ke kedua server gagal.' };
             }
         }
 
-        // --- PENERJEMAH PESAN ERROR (Agar muncul di Popup) ---
+        // --- PENERJEMAH PESAN ERROR ---
         if (!result.success) {
             if (result.message && !result.error) result.error = result.message;
-            if (!result.error) result.error = "Login Gagal di kedua server.";
+            if (!result.error) result.error = "Login Gagal. Cek Email/Password.";
         }
 
-        // --- JIKA SUKSES (DARI MANAPUN ASALNYA) ---
+        // --- JIKA SUKSES ---
         if (result.success) {
-            // Save to store
             store.set('license', {
-                source: activeServer, // (Optional) Untuk debug kita tahu dia login pake server mana
+                source: activeServer,
                 email: result.user.email,
                 username: result.user.username,
                 user_id: result.user.id,
                 license_key: result.license.key,
-                license_type: result.license.type || 'paid', // Penting untuk Validasi Lokal
+                license_type: result.license.type || 'paid',
                 product: result.license.product,
-                product_slug: result.license.product_slug,
                 days_left: result.license.days_left,
                 hwid: result.license.hwid,
-                // Pastikan Server Anda mengirim 'trial_limits'
-                // Jika Server Asli tidak kirim 'trial_limits', bot akan anggap Unlimited.
-                trial_limits: result.license.trial_limits || null, 
+                trial_limits: result.license.trial_limits || null, // Penting untuk limit
                 last_check: Date.now(),
             });
         }
@@ -2777,7 +2758,6 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
         return { success: false, error: 'System Error: ' + err.message };
     }
 });
-
 
 // --- License: Heartbeat check ---
 ipcMain.handle('license:check', async () => {
@@ -2791,6 +2771,7 @@ ipcMain.handle('license:check', async () => {
         const targetUrl = (cached.source === 'ORI') ? SERVER_ORI : SERVER_SAYA;
         const hwid = getHWID();
 
+        console.log(`[CHECK] Checking license to: ${cached.source}`);
         const result = await licenseApiCall(targetUrl, 'check.php', {
             license_key: cached.license_key,
             hwid: hwid,
@@ -2799,14 +2780,13 @@ ipcMain.handle('license:check', async () => {
         if (result.valid) {
             store.set('license.days_left', result.days_left);
             store.set('license.last_check', Date.now());
-            // Update limit jika ada perubahan dari server
             if (result.trial_limits) {
                 store.set('license.trial_limits', result.trial_limits);
             }
         }
         return result;
     } catch (err) {
-        // Offline tolerance logic (tetap sama)
+        // Offline tolerance
         const cached = store.get('license');
         if (cached && (Date.now() - cached.last_check) < 24 * 60 * 60 * 1000) {
             return { valid: true, days_left: cached.days_left, offline: true };
@@ -2815,7 +2795,6 @@ ipcMain.handle('license:check', async () => {
     }
 });
 
-
 // --- License: Reset HWID ---
 ipcMain.handle('license:reset-hwid', async () => {
     try {
@@ -2823,14 +2802,15 @@ ipcMain.handle('license:reset-hwid', async () => {
         if (!cached || !cached.license_key) {
             return { success: false, error: 'Tidak ada lisensi aktif' };
         }
+        
+        const targetUrl = (cached.source === 'ORI') ? SERVER_ORI : SERVER_SAYA;
 
-        const result = await licenseApiCall('reset_hwid.php', {
+        const result = await licenseApiCall(targetUrl, 'reset_hwid.php', {
             license_key: cached.license_key,
             email: cached.email,
         });
 
         if (result.success) {
-            // Update HWID in cache
             const newHwid = getHWID();
             store.set('license.hwid', newHwid);
             store.set('license.last_reset', new Date().toISOString());
@@ -2863,9 +2843,9 @@ ipcMain.handle('license:open-url', async (_event, url) => {
     return { success: true };
 });
 
-// --- Trial: Query usage counters ---
+// --- Trial: Query usage counters (DIBUAT NULL AGAR TIDAK ERROR TAPI TIDAK DIPAKAI) ---
 ipcMain.handle('trial:query-usage', async () => {
-    return await queryTrialUsage();
+    return null; 
 });
 
 // ============================================
@@ -2881,3 +2861,4 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
+
