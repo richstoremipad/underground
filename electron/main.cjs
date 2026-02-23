@@ -2053,7 +2053,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
                 error: `⛔ AKSES DITOLAK!\n\nPaket lisensi Anda (${license.type}) dibatasi maksimal ${limits.max_posts_per_day} Produk per jalan.\nAnda mencoba memposting ${targetProducts.length} Produk.\n\nSilakan kurangi produk atau Upgrade ke Premium.` 
             };
         }
-
+}
     // Per-campaign abort flag
     const cid = campaignId || `legacy_${Date.now()}`;
     postingAbortMap.set(cid, false);
