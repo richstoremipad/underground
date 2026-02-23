@@ -2745,6 +2745,7 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
                 license_key: result.license.key,
                 license_type: result.license.type || 'paid',
                 product: result.license.product,
+                expired_at: result.license.expired_at,
                 days_left: result.license.days_left,
                 hwid: result.license.hwid,
                 trial_limits: result.license.trial_limits || null, // Penting untuk limit
