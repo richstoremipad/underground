@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeImage, shell, clipboard} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const Store = require('electron-store');
+const axios = require('axios'); 
 const { uploadPhotoToFB, uploadMultiplePhotos, extractFbDtsg, extractUid } = require('./uploadHelper.cjs');
 const { publishListing, publishDraftListing, launchDraftToPublic, extractPhotoPaths, mapCondition, mapCategory } = require('./publishHelper.cjs');
 
@@ -2011,55 +2012,19 @@ ipcMain.handle('marketplace:stop-posting', async (_event, campaignId) => {
 
 ipcMain.handle('marketplace:start-posting', async (event, payload) => {
     const { accountIds, materialIds, delayMin = 30, delayMax = 60, concurrency = 1, modePosting = 'STANDAR', hideFromFriends = false, campaignId = null } = payload;
-    
-    // 1. AMBIL DATA LISENSI & ATURAN DARI STORE
-    const license = store.get('license');
-    
-    // Cek apakah lisensi valid / expired
-    if (!license || license.days_left <= 0) {
-        return { success: false, error: 'Masa aktif lisensi habis atau tidak valid.' };
-    }
 
-    // 2. AMBIL DATA CAMPAIGN YANG MAU DIJALANKAN
-    const campaigns = store.get('campaigns') || [];
-    const campaign = campaigns.find(c => c.id === campaignId);
-    
-    if (!campaign) {
-        return { success: false, error: 'Campaign tidak ditemukan.' };
-    }
-
-    const targetAccounts = campaign.accounts || [];
-    const targetProducts = campaign.products || []; // Sesuaikan dengan nama variabel di data Anda (products/contents)
-
-    // --- [SATFAM: VALIDASI LIMIT TRIAL/PAID] ---
-    // Kita cek apakah ada aturan 'trial_limits' yang disimpan saat login?
-    if (license.trial_limits) {
-        const limits = license.trial_limits;
-        
-        // CEK 1: BATAS JUMLAH AKUN
-        // Contoh: Limit 1, User bawa 4 akun -> TOLAK
-        if (limits.max_accounts && targetAccounts.length > limits.max_accounts) {
-            return { 
-                success: false, 
-                error: `⛔ AKSES DITOLAK!\n\nPaket lisensi Anda (${license.type}) dibatasi maksimal ${limits.max_accounts} Akun FB.\nAnda mencoba menjalankan ${targetAccounts.length} Akun.\n\nSilakan kurangi akun atau Upgrade ke Premium.` 
-            };
-        }
-
-        // CEK 2: BATAS JUMLAH POSTINGAN (PRODUK)
-        // Contoh: Limit 20, User bawa 22 produk -> TOLAK
-        if (limits.max_posts_per_day && targetProducts.length > limits.max_posts_per_day) {
-            return { 
-                success: false, 
-                error: `⛔ AKSES DITOLAK!\n\nPaket lisensi Anda (${license.type}) dibatasi maksimal ${limits.max_posts_per_day} Produk per jalan.\nAnda mencoba memposting ${targetProducts.length} Produk.\n\nSilakan kurangi produk atau Upgrade ke Premium.` 
-            };
-        }
-}
     // Per-campaign abort flag
     const cid = campaignId || `legacy_${Date.now()}`;
     postingAbortMap.set(cid, false);
     const isAborted = () => postingAbortMap.get(cid) === true;
 
-   
+    // ── Trial Enforcement: Post Limit ──
+    const totalPosts = accountIds.length * materialIds.length;
+    const trialCheck = await checkTrialLimit('posts', totalPosts);
+    if (!trialCheck.allowed) {
+        postingAbortMap.delete(cid);
+        return { success: false, error: trialCheck.message, trial_limit: true };
+    }
 
     const allAccounts = store.get('accounts', []);
     const allMaterials = store.get('posting_materials', []);
@@ -2653,8 +2618,56 @@ function getHWID() {
     return crypto.createHash('sha256').update(raw).digest('hex').substring(0, 32);
 }
 
-// --- FUNGSI BARU MENGGUNAKAN AXIOS (Wajib Install axios dulu: npm install axios) ---
-const axios = require('axios'); 
+
+// ── Trial Enforcement Helper (ANTI-CHEAT VERSION) ──
+async function checkTrialLimit(type, count = 1) {
+    const cached = store.get('license');
+    if (!cached || !cached.trial_limits) return { allowed: true };
+
+    // --- JALUR SERVER ASLI ---
+    if (cached.source === 'ORI') {
+        try {
+            const result = await licenseApiCall(SERVER_ORI, 'trial_usage.php', {
+                action: 'increment',
+                license_key: cached.license_key,
+                hwid: getHWID(),
+                type, count
+            });
+            if (!result.success && result.error === 'LIMIT_REACHED') {
+                return { allowed: false, message: result.message || `Batas limit server asli tercapai.` };
+            }
+            return { allowed: result.success };
+        } catch { return { allowed: true }; }
+    }
+
+    // --- JALUR SERVER SAYA (Validasi Lokal) ---
+    else {
+        const limits = cached.trial_limits;
+        
+        // Mapping Key
+        let maxKey = '', usedKey = '';
+        if (type === 'posts') { maxKey = 'max_posts'; usedKey = 'used_posts'; }
+        else if (type === 'accounts') { maxKey = 'max_accounts'; usedKey = 'used_accounts'; }
+        else if (type === 'materials') { maxKey = 'max_materials'; usedKey = 'used_materials'; }
+        
+        const maxVal = parseInt(limits[maxKey]) || 0;
+        let usedVal = parseInt(limits[usedKey]) || 0;
+
+        if (usedVal + count > maxVal) {
+            return { 
+                allowed: false, 
+                message: `✋ LIMIT HABIS!\n\nJatah Harian: ${maxVal}\nTerpakai: ${usedVal}\n\nLimit reset otomatis besok (Waktu Server).` 
+            };
+        }
+
+        // Update Counter
+        limits[usedKey] = usedVal + count;
+        store.set('license.trial_limits', limits); // Simpan perubahan
+        
+        console.log(`[LOCAL LIMIT] ${type} +${count}. Total: ${limits[usedKey]}/${maxVal}`);
+        return { allowed: true };
+    }
+}
 
 // Update Helper: Tambahkan parameter 'targetUrl' di depan
 async function licenseApiCall(targetUrl, endpoint, body) {
@@ -2696,50 +2709,46 @@ async function licenseApiCall(targetUrl, endpoint, body) {
     }
 }
 
-// --- License: Activate (Logika Dual Server + SPY POPUP) ---
+// --- License: Activate (Logika Dual Server) ---
 ipcMain.handle('license:activate', async (_event, email, password) => {
     try {
         const hwid = getHWID();
         let result = { success: false, error: 'Unknown' };
         let activeServer = 'NONE';
 
-        // TAHAP 1: COBA SERVER ASLI
-        // console.log('[LOGIN] Mencoba Server Asli...'); // Gak perlu log terminal
+        // --- TAHAP 1: COBA SERVER ASLI ---
+        console.log('[LOGIN] Mencoba Server Asli...');
+        // Perhatikan: endpoint server asli biasanya 'login.php' atau 'login'
         const resultOri = await licenseApiCall(SERVER_ORI, 'login.php', { email, password, hwid });
         
         if (resultOri && resultOri.success) {
-            // === 🕵️ FITUR SPY MODE: TAMPILKAN POPUP ===
-            // Kita ubah data JSON jadi teks biar bisa dibaca
-            const dataRahasia = JSON.stringify(resultOri, null, 2);
-            
-            // Tampilkan Popup di layar
-            await dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: '🕵️ SPY MODE: Data Server Asli',
-                message: 'BERHASIL MENGINTIP DATA! Silakan foto/catat bagian "product_slug" dan "type".',
-                detail: dataRahasia, // Data lengkap akan muncul di sini
-                buttons: ['OK, Lanjut Masuk']
-            });
-            // ==========================================
-
+            console.log('[LOGIN] Ditemukan di Server Asli!');
             result = resultOri;
             activeServer = 'ORI';
-        } else {
-            // TAHAP 2: COBA SERVER SAYA
+        } 
+        else {
+            // --- TAHAP 2: JIKA GAGAL, COBA SERVER SAYA ---
+            console.log('[LOGIN] Tidak ada di Server Asli. Mencoba Server Saya (Google Sheet)...');
+            // Google Sheet endpointnya tetap kita tulis 'login.php' agar masuk ke logika if di atas
             const resultSaya = await licenseApiCall(SERVER_SAYA, 'login.php', { email, password, hwid });
+            
             if (resultSaya && resultSaya.success) {
+                console.log('[LOGIN] Ditemukan di Server Saya!');
                 result = resultSaya;
                 activeServer = 'SAYA';
             } else {
+                // Jika dua-duanya gagal, ambil pesan error dari Server Saya (atau Asli)
                 result = resultSaya || { success: false, error: 'Koneksi ke kedua server gagal.' };
             }
         }
 
+        // --- PENERJEMAH PESAN ERROR ---
         if (!result.success) {
             if (result.message && !result.error) result.error = result.message;
             if (!result.error) result.error = "Login Gagal. Cek Email/Password.";
         }
 
+        // --- JIKA SUKSES ---
         if (result.success) {
             store.set('license', {
                 source: activeServer,
@@ -2749,25 +2758,23 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
                 license_key: result.license.key,
                 license_type: result.license.type || 'paid',
                 product: result.license.product,
-                
-                // Ambil slug dari server (atau default kalau server saya belum update)
-                product_slug: result.license.product_slug, 
-                
-                expired_at: result.license.expired_at, 
+                expired_at: result.license.expired_at,
                 days_left: result.license.days_left,
                 hwid: result.license.hwid,
-                trial_limits: result.license.trial_limits || null,
+                trial_limits: result.license.trial_limits || null, // Penting untuk limit
+                last_server_date: result.license.server_date || null, // Simpan tanggal server saat login
                 last_check: Date.now(),
             });
         }
+        
         return result;
+
     } catch (err) {
         return { success: false, error: 'System Error: ' + err.message };
     }
 });
 
-
-// --- License: Heartbeat check (Versi Aman: Auto-Kill Session) ---
+// --- License: Heartbeat check (FINAL STABLE VERSION) ---
 ipcMain.handle('license:check', async () => {
     try {
         const cached = store.get('license');
@@ -2775,49 +2782,85 @@ ipcMain.handle('license:check', async () => {
             return { success: false, error: 'No cached license', code: 'NO_CACHE' };
         }
 
-        // 1. Tentukan target server (ORI atau SAYA)
         const targetUrl = (cached.source === 'ORI') ? SERVER_ORI : SERVER_SAYA;
         const hwid = getHWID();
 
-        console.log(`[CHECK] Checking license to: ${cached.source}`);
-        
-        // 2. Cek ke Server
+        // 1. Siapkan Laporan Usage (Khusus Server Saya)
+        let reportData = {};
+        if (cached.source === 'SAYA' && cached.trial_limits) {
+            reportData = {
+                used_posts: cached.trial_limits.used_posts || 0,
+                used_accounts: cached.trial_limits.used_accounts || 0,
+                used_materials: cached.trial_limits.used_materials || 0
+            };
+        }
+
+        // 2. Panggil Server
         const result = await licenseApiCall(targetUrl, 'check.php', {
             license_key: cached.license_key,
             hwid: hwid,
+            usage_report: reportData
         });
 
         if (result.valid) {
-            // 3. JIKA AMAN: Update data lokal (Sisa Hari & Limit)
             store.set('license.days_left', result.days_left);
             store.set('license.last_check', Date.now());
             
-            // Update limit jika ada perubahan dari server (misal: user upgrade plan)
+            // 🔥 LOGIKA ANTI-CHEAT & RESET HARIAN 🔥
             if (result.trial_limits) {
-                store.set('license.trial_limits', result.trial_limits);
+                // Ambil data lokal TERBARU
+                const currentLocal = store.get('license'); 
+                const serverLimits = result.trial_limits; 
+                
+                // Jika Login via Server SAYA (Kita yang kontrol reset)
+                if (cached.source === 'SAYA') {
+                    
+                    const currentServerDate = result.server_date; // "2026-02-24"
+                    const lastResetDate = currentLocal.last_server_date || "";
+
+                    // Cek: Apakah Tanggal Server BEDA dengan Tanggal Terakhir Reset?
+                    if (currentServerDate && currentServerDate !== lastResetDate) {
+                        console.log(`[LIMIT] Ganti Hari (${lastResetDate} -> ${currentServerDate}). RESET LIMIT!`);
+                        
+                        // RESET JADI 0
+                        serverLimits.used_posts = 0;
+                        serverLimits.used_accounts = 0;
+                        serverLimits.used_materials = 0;
+                        
+                        // Simpan Tanggal Reset Baru
+                        store.set('license.last_server_date', currentServerDate);
+                    } else {
+                        // MASIH HARI YANG SAMA -> Pertahankan hitungan lokal
+                        console.log(`[LIMIT] Hari Sama (${currentServerDate}). Pakai hitungan lokal.`);
+                        
+                        // Safety Check: Pastikan trial_limits lokal ada
+                        const localLimits = currentLocal.trial_limits || {};
+                        
+                        serverLimits.used_posts = localLimits.used_posts || 0;
+                        serverLimits.used_accounts = localLimits.used_accounts || 0;
+                        serverLimits.used_materials = localLimits.used_materials || 0;
+                    }
+                }
+                
+                store.set('license.trial_limits', serverLimits);
             }
         } else {
-            // 4. 🚨 JIKA INVALID (BANNED / EXPIRED / HWID SALAH):
-            // Langsung hapus memori lisensi agar Offline Mode tidak bisa dipakai!
+            // Jika Invalid (Banned/Expired/HWID Salah) -> Kill Session
             console.log(`[CHECK] Lisensi Invalid (${result.error}). Menghapus sesi...`);
             store.delete('license'); 
         }
-        
         return result;
 
     } catch (err) {
-        // 5. Offline Tolerance (Hanya jika data belum dihapus)
+        // Offline Tolerance (24 Jam)
         const cached = store.get('license');
-        
-        // Cek apakah data masih ada? (Kalau sudah dihapus di langkah 4, ini akan gagal -> Aman)
         if (cached && (Date.now() - cached.last_check) < 24 * 60 * 60 * 1000) {
-            console.log('[CHECK] Offline Mode Aktif (Data cached valid)');
             return { valid: true, days_left: cached.days_left, offline: true };
         }
-        
         return { valid: false, error: 'Gagal koneksi: ' + err.message };
     }
 });
+
 
 
 // --- License: Reset HWID (Versi Aman: Auto-Logout) ---
