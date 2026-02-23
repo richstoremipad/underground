@@ -2760,7 +2760,7 @@ ipcMain.handle('license:activate', async (_event, email, password) => {
     }
 });
 
-// --- License: Heartbeat check ---
+// --- License: Heartbeat check (Versi Aman: Auto-Kill Session) ---
 ipcMain.handle('license:check', async () => {
     try {
         const cached = store.get('license');
@@ -2768,35 +2768,52 @@ ipcMain.handle('license:check', async () => {
             return { success: false, error: 'No cached license', code: 'NO_CACHE' };
         }
 
-        // Tentukan mau lapor ke server mana berdasarkan login terakhir
+        // 1. Tentukan target server (ORI atau SAYA)
         const targetUrl = (cached.source === 'ORI') ? SERVER_ORI : SERVER_SAYA;
         const hwid = getHWID();
 
         console.log(`[CHECK] Checking license to: ${cached.source}`);
+        
+        // 2. Cek ke Server
         const result = await licenseApiCall(targetUrl, 'check.php', {
             license_key: cached.license_key,
             hwid: hwid,
         });
 
         if (result.valid) {
+            // 3. JIKA AMAN: Update data lokal (Sisa Hari & Limit)
             store.set('license.days_left', result.days_left);
             store.set('license.last_check', Date.now());
+            
+            // Update limit jika ada perubahan dari server (misal: user upgrade plan)
             if (result.trial_limits) {
                 store.set('license.trial_limits', result.trial_limits);
             }
+        } else {
+            // 4. 🚨 JIKA INVALID (BANNED / EXPIRED / HWID SALAH):
+            // Langsung hapus memori lisensi agar Offline Mode tidak bisa dipakai!
+            console.log(`[CHECK] Lisensi Invalid (${result.error}). Menghapus sesi...`);
+            store.delete('license'); 
         }
+        
         return result;
+
     } catch (err) {
-        // Offline tolerance
+        // 5. Offline Tolerance (Hanya jika data belum dihapus)
         const cached = store.get('license');
+        
+        // Cek apakah data masih ada? (Kalau sudah dihapus di langkah 4, ini akan gagal -> Aman)
         if (cached && (Date.now() - cached.last_check) < 24 * 60 * 60 * 1000) {
+            console.log('[CHECK] Offline Mode Aktif (Data cached valid)');
             return { valid: true, days_left: cached.days_left, offline: true };
         }
+        
         return { valid: false, error: 'Gagal koneksi: ' + err.message };
     }
 });
 
-// --- License: Reset HWID ---
+
+// --- License: Reset HWID (Versi Aman: Auto-Logout) ---
 ipcMain.handle('license:reset-hwid', async () => {
     try {
         const cached = store.get('license');
@@ -2804,23 +2821,28 @@ ipcMain.handle('license:reset-hwid', async () => {
             return { success: false, error: 'Tidak ada lisensi aktif' };
         }
         
+        // 1. Pilih server sesuai login awal (Server ORI atau Google Sheet)
         const targetUrl = (cached.source === 'ORI') ? SERVER_ORI : SERVER_SAYA;
 
+        // 2. Kirim perintah reset ke server
         const result = await licenseApiCall(targetUrl, 'reset_hwid.php', {
             license_key: cached.license_key,
             email: cached.email,
         });
 
+        // 3. Jika Sukses Reset -> HAPUS SESI LOKAL (TENDANG USER)
         if (result.success) {
-            const newHwid = getHWID();
-            store.set('license.hwid', newHwid);
-            store.set('license.last_reset', new Date().toISOString());
+            store.delete('license'); // <--- Ini kuncinya! Paksa logout.
+            console.log('[RESET] Sukses reset HWID. Sesi dihapus agar user login ulang.');
         }
+        
         return result;
+
     } catch (err) {
         return { success: false, error: 'Gagal koneksi: ' + err.message };
     }
 });
+
 
 // --- License: Get cached data ---
 ipcMain.handle('license:get-cache', async () => {
