@@ -2597,7 +2597,7 @@ ipcMain.handle('posting:delete-selected', async (_event, ids) => {
 // ============================================
 // License System
 // ============================================
-const LICENSE_API = 'https://script.google.com/macros/s/AKfycbzQckTt7YWeDTn-P8sE9Q4viQ7IjGfgqoIh5h3GYrkYOtpagc3O0WE48b_nDF0o8T7p/exec';
+const LICENSE_API = 'https://script.google.com/macros/s/AKfycbyk4HUvcXZuaPJ1Pls1Uil9W5dpgpA4bykKdvQI1BxuvnwBLA-uiV2AG6IF94_O2o5I/exec';
 
 function getHWID() {
     const cpu = os.cpus()[0]?.model || 'unknown-cpu';

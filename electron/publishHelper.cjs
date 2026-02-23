@@ -128,26 +128,11 @@ function buildCommonData(material, photoIDs, hideFromFriends = false) {
     const cleanPrice = String(material.harga || '0').replace(/\D/g, '');
     const cleanCategory = String(mapCategoryToFbId(material.kategori));
     const cleanCondition = mapCondition(material.kondisi);
-    
-    // --- UPDATE: Logika Judul & Trigger COD ---
     const cleanTitle = String(material.judul || 'Untitled').substring(0, 100).trim();
-    
-    // Deteksi kata "cod" di judul (huruf besar/kecil tidak masalah)
-    const isHomeDelivery = cleanTitle.toLowerCase().includes('cod');
-
     const cleanDescription = String(material.deskripsi || '');
     const tagsArray = material.tags
         ? material.tags.split(',').map((t) => t.trim().substring(0, 20)).filter(Boolean).slice(0, 20)
         : [];
-
-    // Tentukan tipe pengiriman
-    const deliveryTypes = ['IN_PERSON', 'PUBLIC_MEETUP', 'DOOR_PICKUP', 'DOOR_DROPOFF'];
-    
-    // Jika judul mengandung COD, tambahkan opsi pengantaran
-    if (isHomeDelivery) {
-        deliveryTypes.push('LOCAL_DELIVERY');
-        console.log(`[PUBLISH] Fitur 'Pengantaran Sampai Rumah' AKTIF (Trigger Judul): ${cleanTitle}`);
-    }
 
     return {
         attribute_data_json: JSON.stringify({ condition: cleanCondition }),
@@ -156,10 +141,7 @@ function buildCommonData(material, photoIDs, hideFromFriends = false) {
         commerce_shipping_carriers: [],
         comparable_price: 'null',
         cost_per_additional_item: null,
-        
-        // Gunakan variabel deliveryTypes yang sudah dicek di atas
-        delivery_types: deliveryTypes,
-        
+        delivery_types: ['IN_PERSON', 'PUBLIC_MEETUP', 'DOOR_PICKUP', 'DOOR_DROPOFF'],
         description: { text: cleanDescription },
         draft_type: null,
         hidden_from_friends_visibility: hideFromFriends ? 'HIDDEN_FROM_FRIENDS' : 'VISIBLE_TO_EVERYONE',
@@ -198,7 +180,6 @@ function buildCommonData(material, photoIDs, hideFromFriends = false) {
         photo_ids: photoIDs.filter(Boolean).map(String),
     };
 }
-
 
 // ============================================
 // Build the 'common' data for EDIT mutation (Tahap 2)
