@@ -229,7 +229,7 @@ async function uploadMultiplePhotos({ page, context, filePaths, onProgress }) {
 
         // Small delay between uploads to avoid rate limiting
         if (i < filePaths.length - 1) {
-            await new Promise((r) => setTimeout(r, 500 + Math.random() * 500));
+            await new Promise((r) => setTimeout(r, 3000 + Math.random() * 3000));
         }
     }
 

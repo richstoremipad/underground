@@ -2324,7 +2324,7 @@ ipcMain.handle('marketplace:start-posting', async (event, payload) => {
 
                             // ── TAHAP 2: AUTO-SAVE / UPDATE DATA (Doc ID 249...) ──
                             sendLog(`⏳ ${taskLabel} [ANTI-DUPLIKAT] Jeda 5 detik...`, 'info');
-                            await new Promise(r => setTimeout(r, 5000));
+                            await new Promise(r => setTimeout(r, 20000));
 
                             sendLog(`💾 ${taskLabel} [ANTI-DUPLIKAT] Tahap 2: Auto-Save / Update Data...`, 'info', { accountId: account.id, materialId: material.id });
 

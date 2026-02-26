@@ -207,7 +207,7 @@ function buildEditCommonData(material, photoIDs, hideFromFriends = false) {
         comparable_price: 'null',
         comparable_price_type: null,
         cost_per_additional_item: null,
-        delivery_types: ['IN_PERSON'],
+        delivery_types: ['DOOR_DROPOFF'],
         description: { text: cleanDescription },
         draft_type: null,
         hidden_from_friends_visibility: hideFromFriends ? 'HIDDEN_FROM_FRIENDS' : 'VISIBLE_TO_EVERYONE',
